@@ -1,10 +1,12 @@
-# Transformer
+# Transformer English to French
 
-A PyTorch implementation of the Transformer architecture for English-to-French translation using the OPUS Books dataset.
+A PyTorch implementation of the Transformer architecture for English-to-French neural machine translation using the OPUS Books dataset.
 
-This project is based on the Transformer architecture introduced in *Attention Is All You Need* by Ashish Vaswani et al.:
+This project is inspired by the architecture introduced in:
 
-[Attention Is All You Need](https://arxiv.org/abs/1706.03762)
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. (2017). *Attention Is All You Need*.
+
+[Read the paper on arXiv](https://arxiv.org/abs/1706.03762)
 
 ## Project Structure
 
@@ -15,14 +17,50 @@ Transformer/
 ├── model.py
 ├── train.py
 ├── requirements.txt
-└── .gitignore
+├── README.md
+├── LICENSE
+├── .gitignore
+├── notebooks/
+│   └── Transformer_English_to_French.ipynb
+└── tests/
+    └── test_model.py
 ```
+
+## Core Components
+
+`config.py` contains training, model, tokenizer, checkpoint, and TensorBoard configuration.
+
+`dataset.py` prepares bilingual examples, creates encoder and decoder inputs, builds padding masks, and provides the causal attention mask.
+
+`model.py` implements the Transformer encoder-decoder architecture with embeddings, sinusoidal positional encoding, multi-head attention, feed-forward networks, residual connections, normalization, and vocabulary projection.
+
+`train.py` handles OPUS Books loading, tokenizer creation, dataset splitting, training, greedy decoding, validation metrics, TensorBoard logging, and checkpoint management.
+
+`notebooks/Transformer_English_to_French.ipynb` provides an interactive walkthrough of the model and its tensor shapes.
+
+`tests/test_model.py` contains shape and causal-mask tests for the core architecture.
 
 ## Setup
 
 ```bash
 python -m venv .venv
+```
+
+Windows:
+
+```bash
 .venv\Scripts\activate
+```
+
+Linux or macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -32,26 +70,53 @@ pip install -r requirements.txt
 python train.py
 ```
 
-The training pipeline builds WordLevel tokenizers, loads OPUS Books, creates train and validation datasets, trains the Transformer, evaluates translations, logs metrics to TensorBoard, and saves checkpoints.
+The first run builds WordLevel tokenizers from the OPUS Books training data. Subsequent runs reuse the generated tokenizer files.
+
+The training pipeline creates a 90/10 training-validation split, trains the Transformer with teacher forcing, evaluates generated translations, records training and validation metrics, and saves model checkpoints.
 
 ## TensorBoard
+
+Start TensorBoard with:
 
 ```bash
 tensorboard --logdir runs
 ```
 
+## Testing
+
+Run the model tests with:
+
+```bash
+pytest
+```
+
+## Checkpoints
+
+Model checkpoints are stored under the configured model directory and are excluded from version control. Set `preload` in `config.py` to resume from a particular checkpoint or use `latest` to load the most recent checkpoint.
+
 ## Architecture
 
-The model contains input embeddings, sinusoidal positional encoding, multi-head self-attention, encoder-decoder cross-attention, feed-forward networks, pre-normalized residual connections, stacked encoder and decoder blocks, and a projection layer.
+The implementation follows the encoder-decoder Transformer design with:
 
-## Configuration
+- Token embeddings scaled by the square root of the model dimension
+- Sinusoidal positional encoding
+- Multi-head self-attention
+- Decoder masked self-attention
+- Encoder-decoder cross-attention
+- Position-wise feed-forward networks
+- Pre-normalized residual connections
+- Stacked encoder and decoder blocks
+- Linear vocabulary projection
+- Xavier uniform parameter initialization
 
-Training and model settings are defined in `config.py`. Checkpoints are stored separately from source code and are excluded from Git through `.gitignore`.
+## Data
 
-## Reference
+The project uses the OPUS Books dataset through the Hugging Face `datasets` library. The default configuration trains an English-to-French translation model.
 
-The original Transformer architecture is described in:
+## Attribution
 
-Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. (2017). *Attention Is All You Need*.
+The Transformer architecture implemented here is based on the work presented in *Attention Is All You Need* by Vaswani et al. The project also uses the implementation approach demonstrated by [hkproj/pytorch-transformer](https://github.com/hkproj/pytorch-transformer) as a reference while adapting the project structure and implementation for this repository.
 
-https://arxiv.org/abs/1706.03762
+Paper: https://arxiv.org/abs/1706.03762
+
+Reference implementation: https://github.com/hkproj/pytorch-transformer
