@@ -36,7 +36,7 @@ def evaluate_model(
 
     model.eval()
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for index, batch in enumerate(loader):
             if num_examples is not None and index >= num_examples:
                 break
@@ -61,9 +61,21 @@ def evaluate_model(
             expected.append(batch["tgt_text"][0])
             predicted.append(prediction)
 
+    if not predicted:
+        return {
+            "cer": 0.0,
+            "wer": 0.0,
+            "bleu": 0.0,
+            "expected": [],
+            "predicted": []
+        }
+
     cer = torchmetrics.CharErrorRate()(predicted, expected)
     wer = torchmetrics.WordErrorRate()(predicted, expected)
-    bleu = torchmetrics.BLEUScore()(predicted, expected)
+    bleu = torchmetrics.BLEUScore()(
+        predicted,
+        [[text] for text in expected]
+    )
 
     return {
         "cer": cer.item(),
@@ -119,10 +131,8 @@ if __name__ == "__main__":
         device
     )
 
-    Path(config["model_folder"]).mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    output_path = Path(config["model_folder"]) / "evaluation.pt"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(
         {
@@ -130,5 +140,5 @@ if __name__ == "__main__":
             "wer": metrics["wer"],
             "bleu": metrics["bleu"]
         },
-        Path(config["model_folder"]) / "evaluation.pt"
+        output_path
     )
