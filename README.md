@@ -1,12 +1,12 @@
 # Transformer English to French
 
-A PyTorch implementation of the Transformer architecture for English-to-French neural machine translation using the OPUS Books dataset.
+A from-scratch PyTorch implementation of the original encoder-decoder Transformer for English-to-French neural machine translation using OPUS Books.
 
-This project is inspired by the architecture introduced in:
+The project is based on the architecture introduced by Vaswani et al. in *Attention Is All You Need* and uses the `hkproj/pytorch-transformer` implementation as a reference while extending the training, evaluation, inference, testing, and notebook workflow.
 
-Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. (2017). *Attention Is All You Need*.
+Paper: https://arxiv.org/abs/1706.03762
 
-[Read the paper on arXiv](https://arxiv.org/abs/1706.03762)
+Reference implementation: https://github.com/hkproj/pytorch-transformer
 
 ## Project Structure
 
@@ -17,6 +17,7 @@ Transformer/
 ├── dataset.py
 ├── model.py
 ├── train.py
+├── evaluate.py
 ├── translate.py
 ├── requirements.txt
 ├── README.md
@@ -24,29 +25,86 @@ Transformer/
 ├── .gitignore
 ├── notebooks/
 │   └── Transformer_English_to_French.ipynb
-└── tests/
-    └── test_model.py
+├── tests/
+│   └── test_model.py
+└── .github/
+    └── workflows/
+        └── tests.yml
 ```
 
-## Core Components
+## Implementation
 
-`config.py` contains training, model, tokenizer, checkpoint, and TensorBoard configuration.
+The model is implemented without `torch.nn.Transformer` so the principal Transformer components are explicit in the source code.
 
-`tokenizer.py` handles WordLevel tokenizer creation, vocabulary training, tokenizer persistence, and tokenizer loading.
+### Input pipeline
 
-`dataset.py` prepares bilingual examples, creates encoder and decoder inputs, builds padding masks, and provides the causal attention mask.
+The OPUS Books English-French corpus is loaded through Hugging Face Datasets. Separate WordLevel tokenizers are trained for the source and target languages and persisted as JSON files.
 
-`model.py` implements the Transformer encoder-decoder architecture with embeddings, sinusoidal positional encoding, multi-head attention, feed-forward networks, residual connections, normalization, and vocabulary projection.
+Each training example produces:
 
-`train.py` handles OPUS Books loading, dataset splitting, training, greedy decoding, validation metrics, TensorBoard logging, and checkpoint management.
+- Source sequence: `[SOS] source tokens [EOS] [PAD] ...`
+- Decoder input: `[SOS] target tokens [PAD] ...`
+- Label: `target tokens [EOS] [PAD] ...`
 
-`translate.py` provides reusable checkpoint loading and English-to-French inference functions without coupling inference to the training loop.
+Source and target vocabularies have independent special-token IDs. Padding is validated against the configured sequence length before tensors are created.
 
-`notebooks/Transformer_English_to_French.ipynb` provides an interactive walkthrough of the model, masks, and tensor shapes.
+### Attention masks
 
-`tests/test_model.py` contains shape and causal-mask tests for the core architecture.
+The encoder receives a padding mask with shape `(batch, 1, 1, source_length)`.
 
-## Setup
+The decoder receives a combined padding and causal mask with shape `(batch, 1, target_length, target_length)` after batching. The causal mask prevents a target position from attending to future positions during teacher forcing.
+
+### Embeddings
+
+Token embeddings are scaled by `sqrt(d_model)`. Sinusoidal positional encodings are registered as buffers and added before the encoder or decoder stack.
+
+### Multi-head attention
+
+The implementation contains independent query, key, and value projections, head splitting, scaled dot-product attention, masking, dropout, head concatenation, and output projection.
+
+For each head:
+
+```text
+Attention(Q, K, V) = softmax(QKᵀ / sqrt(d_k))V
+```
+
+The implementation also retains attention probabilities on each attention block for inspection during experiments.
+
+### Encoder
+
+Each encoder block contains:
+
+1. Multi-head self-attention
+2. Residual connection with layer normalization and dropout
+3. Position-wise feed-forward network
+4. Residual connection with layer normalization and dropout
+
+Six blocks are used by default.
+
+### Decoder
+
+Each decoder block contains:
+
+1. Masked multi-head self-attention
+2. Residual connection with layer normalization and dropout
+3. Encoder-decoder cross-attention
+4. Residual connection with layer normalization and dropout
+5. Position-wise feed-forward network
+6. Residual connection with layer normalization and dropout
+
+Six blocks are used by default.
+
+### Feed-forward network
+
+The position-wise network expands the representation from `d_model` to `d_ff`, applies ReLU and dropout, then projects back to `d_model`.
+
+### Output projection
+
+The decoder representation is projected to the target vocabulary size. Cross-entropy loss with label smoothing is calculated against the shifted target sequence while ignoring target padding tokens.
+
+## Training
+
+Create and activate an environment:
 
 ```bash
 python -m venv .venv
@@ -70,19 +128,55 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-## Training
+Train:
 
 ```bash
 python train.py
 ```
 
-The first run builds WordLevel tokenizers from the OPUS Books training data. Subsequent runs reuse the generated tokenizer files.
+The training pipeline handles tokenizers, deterministic train-validation splitting, DataLoaders, model construction, AdamW optimization, gradient clipping, label smoothing, TensorBoard logging, validation metrics, and checkpoint persistence.
 
-The training pipeline creates a deterministic 90/10 training-validation split, trains the Transformer with teacher forcing, evaluates generated translations, records training and validation metrics, and saves model checkpoints.
+Default model settings are six encoder layers, six decoder layers, eight attention heads, `d_model=512`, `d_ff=2048`, dropout `0.1`, and sequence length `128`.
+
+## Checkpointing
+
+Checkpoints are written under the configured `opus_books_weights` directory and excluded from version control.
+
+To resume from the latest checkpoint, set:
+
+```python
+"preload": "latest"
+```
+
+To resume from a specific checkpoint:
+
+```python
+"preload": "05"
+```
+
+The checkpoint contains model parameters, optimizer state, epoch, global step, and the training configuration used for the run.
+
+## Evaluation
+
+Run the evaluation pipeline after training:
+
+```bash
+python evaluate.py
+```
+
+The evaluation pipeline supports:
+
+- Character Error Rate
+- Word Error Rate
+- BLEU
+- Greedy autoregressive decoding
+- Validation-set evaluation
+
+Evaluation results are stored separately from model checkpoints.
 
 ## Translation
 
-After training, inference can be performed from Python:
+Load a trained model and translate an English sentence:
 
 ```python
 from config import get_config
@@ -109,41 +203,59 @@ Start TensorBoard with:
 tensorboard --logdir runs
 ```
 
+Training loss and validation CER, WER, and BLEU are recorded during training.
+
+## Notebook
+
+`notebooks/Transformer_English_to_French.ipynb` provides an implementation-level walkthrough of the project.
+
+The notebook covers:
+
+1. Configuration and reproducibility
+2. OPUS Books loading
+3. WordLevel tokenization
+4. Source and target sequence construction
+5. Padding masks
+6. Causal masking
+7. Token embeddings
+8. Sinusoidal positional encoding
+9. Layer normalization
+10. Feed-forward networks
+11. Scaled dot-product attention
+12. Multi-head attention
+13. Encoder blocks
+14. Decoder blocks
+15. Cross-attention
+16. Transformer assembly
+17. Tensor-shape inspection
+18. Cross-entropy training objective
+19. Gradient clipping
+20. Autoregressive greedy decoding
+21. Attention inspection
+22. Checkpoint serialization
+
+The notebook contains the core architecture implementation directly rather than only importing the project model.
+
 ## Testing
 
-Run the model tests with:
+Run the test suite with:
 
 ```bash
 pytest
 ```
 
-## Checkpoints
-
-Model checkpoints are stored under the configured model directory and are excluded from version control. Set `preload` in `config.py` to resume from a particular checkpoint or use `latest` to load the most recent checkpoint.
-
-## Architecture
-
-The implementation follows the encoder-decoder Transformer design with:
-
-- Token embeddings scaled by the square root of the model dimension
-- Sinusoidal positional encoding
-- Multi-head self-attention
-- Decoder masked self-attention
-- Encoder-decoder cross-attention
-- Position-wise feed-forward networks
-- Pre-normalized residual connections
-- Stacked encoder and decoder blocks
-- Linear vocabulary projection
-- Xavier uniform parameter initialization
-
-## Data
-
-The project uses the OPUS Books dataset through the Hugging Face `datasets` library. The default configuration trains an English-to-French translation model.
+The tests cover causal-mask correctness and encoder, decoder, and projection tensor shapes.
 
 ## Attribution
 
-The Transformer architecture implemented here is based on the work presented in *Attention Is All You Need* by Vaswani et al. The project also uses the implementation approach demonstrated by [hkproj/pytorch-transformer](https://github.com/hkproj/pytorch-transformer) as a reference while adapting the project structure and implementation for this repository.
+This implementation is based on the Transformer architecture presented in:
 
-Paper: https://arxiv.org/abs/1706.03762
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. (2017). *Attention Is All You Need*.
 
-Reference implementation: https://github.com/hkproj/pytorch-transformer
+https://arxiv.org/abs/1706.03762
+
+The implementation structure and training approach were also informed by:
+
+https://github.com/hkproj/pytorch-transformer
+
+This repository is an independent implementation and extension rather than a copy of that repository.
