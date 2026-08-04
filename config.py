@@ -45,23 +45,15 @@ def latest_weights_file_path(config):
     if not model_folder.exists():
         return None
 
-    weights_files = list(
-        model_folder.glob(
-            f"{config['model_basename']}*.pt"
-        )
-    )
+    weights_files = []
+    for path in model_folder.glob(
+        f"{config['model_basename']}*.pt"
+    ):
+        suffix = path.stem.removeprefix(config["model_basename"])
+        if suffix.isdigit():
+            weights_files.append((int(suffix), path))
 
     if not weights_files:
         return None
 
-    return str(
-        max(
-            weights_files,
-            key=lambda path: int(
-                path.stem.replace(
-                    config["model_basename"],
-                    ""
-                )
-            )
-        )
-    )
+    return str(max(weights_files, key=lambda item: item[0])[1])
