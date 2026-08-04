@@ -1,7 +1,7 @@
 import torch
 
 from dataset import causal_mask
-from model import build_transformer
+from model import MultiHeadAttentionBlock, build_transformer
 
 
 def test_causal_mask():
@@ -17,6 +17,31 @@ def test_causal_mask():
     ).unsqueeze(0)
 
     assert torch.equal(mask, expected)
+
+
+def test_attention_mask_blocks_future_positions():
+    torch.manual_seed(42)
+
+    attention = MultiHeadAttentionBlock(
+        d_model=16,
+        h=4,
+        dropout=0.0
+    )
+
+    query = torch.randn(1, 4, 16)
+    key = torch.randn(1, 4, 16)
+    value = torch.randn(1, 4, 16)
+    mask = causal_mask(4).unsqueeze(0)
+
+    _, scores = attention.attention(
+        query.view(1, 4, 4, 4).transpose(1, 2),
+        key.view(1, 4, 4, 4).transpose(1, 2),
+        value.view(1, 4, 4, 4).transpose(1, 2),
+        mask,
+        None
+    )
+
+    assert torch.all(scores.triu(diagonal=1) == 0)
 
 
 def test_transformer_shapes():
@@ -54,7 +79,7 @@ def test_transformer_shapes():
         1,
         1,
         seq_len,
-        dtype=torch.int
+        dtype=torch.bool
     )
 
     target_mask = causal_mask(
@@ -99,3 +124,44 @@ def test_transformer_shapes():
         seq_len,
         tgt_vocab_size
     )
+
+
+def test_transformer_backward():
+    torch.manual_seed(42)
+
+    model = build_transformer(
+        32,
+        40,
+        8,
+        8,
+        d_model=64,
+        N=2,
+        h=8,
+        dropout=0.0,
+        d_ff=128
+    )
+
+    source = torch.randint(0, 32, (2, 8))
+    target = torch.randint(0, 40, (2, 8))
+    source_mask = torch.ones(2, 1, 1, 8, dtype=torch.bool)
+    target_mask = causal_mask(8).unsqueeze(0).expand(2, -1, -1, -1)
+
+    encoder_output = model.encode(source, source_mask)
+    decoder_output = model.decode(
+        encoder_output,
+        source_mask,
+        target,
+        target_mask
+    )
+
+    logits = model.project(decoder_output)
+    loss = logits.mean()
+    loss.backward()
+
+    gradients = [
+        parameter.grad
+        for parameter in model.parameters()
+        if parameter.requires_grad
+    ]
+
+    assert all(gradient is not None for gradient in gradients)
