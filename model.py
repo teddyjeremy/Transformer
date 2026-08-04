@@ -45,6 +45,9 @@ class InputEmbeddings(nn.Module):
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, seq_len: int, dropout: float) -> None:
         super().__init__()
+        if d_model % 2 != 0:
+            raise ValueError("d_model must be even for sinusoidal positional encoding")
+
         self.dropout = nn.Dropout(dropout)
 
         pe = torch.zeros(seq_len, d_model)
@@ -68,7 +71,11 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe.unsqueeze(0))
 
     def forward(self, x):
-        x = x + self.pe[:, :x.size(1)].detach()
+        if x.size(1) > self.pe.size(1):
+            raise ValueError(
+                f"Sequence length {x.size(1)} exceeds positional encoding length {self.pe.size(1)}"
+            )
+        x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
 
 
@@ -85,7 +92,8 @@ class ResidualConnection(nn.Module):
 class MultiHeadAttentionBlock(nn.Module):
     def __init__(self, d_model: int, h: int, dropout: float) -> None:
         super().__init__()
-        assert d_model % h == 0, "d_model is not divisible by h"
+        if d_model % h != 0:
+            raise ValueError("d_model must be divisible by h")
 
         self.d_model = d_model
         self.h = h
