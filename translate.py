@@ -41,7 +41,13 @@ def load_tokenizers(config):
     )
 
 
-def load_model(config, tokenizer_src, tokenizer_tgt, device=None, checkpoint="latest"):
+def load_model(
+    config,
+    tokenizer_src,
+    tokenizer_tgt,
+    device=None,
+    checkpoint="latest"
+):
     device = device or get_device()
 
     model = build_transformer(
@@ -49,7 +55,11 @@ def load_model(config, tokenizer_src, tokenizer_tgt, device=None, checkpoint="la
         tokenizer_tgt.get_vocab_size(),
         config["seq_len"],
         config["seq_len"],
-        d_model=config["d_model"]
+        d_model=config["d_model"],
+        N=config["num_layers"],
+        h=config["num_heads"],
+        dropout=config["dropout"],
+        d_ff=config["d_ff"]
     ).to(device)
 
     model_path = (
@@ -78,7 +88,6 @@ def load_model(config, tokenizer_src, tokenizer_tgt, device=None, checkpoint="la
 
 def encode_source(text, tokenizer_src, seq_len):
     source_tokens = tokenizer_src.encode(text).ids
-
     padding_length = seq_len - len(source_tokens) - 2
 
     if padding_length < 0:
@@ -88,15 +97,13 @@ def encode_source(text, tokenizer_src, seq_len):
     eos = tokenizer_src.token_to_id("[EOS]")
     pad = tokenizer_src.token_to_id("[PAD]")
 
-    tokens = [
-        sos,
-        *source_tokens,
-        eos,
-        *([pad] * padding_length)
-    ]
-
     source = torch.tensor(
-        tokens,
+        [
+            sos,
+            *source_tokens,
+            eos,
+            *([pad] * padding_length)
+        ],
         dtype=torch.long
     ).unsqueeze(0)
 
@@ -182,14 +189,15 @@ def translate_text(
     source = source.to(device)
     source_mask = source_mask.to(device)
 
-    output = greedy_decode(
-        model,
-        source,
-        source_mask,
-        tokenizer_tgt,
-        config["seq_len"],
-        device
-    )
+    with torch.inference_mode():
+        output = greedy_decode(
+            model,
+            source,
+            source_mask,
+            tokenizer_tgt,
+            config["seq_len"],
+            device
+        )
 
     return tokenizer_tgt.decode(
         output.detach().cpu().numpy(),
