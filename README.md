@@ -2,7 +2,7 @@
 
 A from-scratch PyTorch implementation of the original encoder-decoder Transformer for English-to-French neural machine translation using OPUS Books.
 
-The project is based on the architecture introduced by Vaswani et al. in *Attention Is All You Need* and uses the `hkproj/pytorch-transformer` implementation as a reference while extending the training, evaluation, inference, testing, and notebook workflow.
+The project is based on the architecture introduced by Vaswani et al. in *Attention Is All You Need* and uses the `hkproj/pytorch-transformer` implementation as a reference while extending the training, evaluation, inference, testing, packaging, and notebook workflow.
 
 Paper: https://arxiv.org/abs/1706.03762
 
@@ -20,6 +20,7 @@ Transformer/
 ├── evaluate.py
 ├── translate.py
 ├── requirements.txt
+├── pyproject.toml
 ├── README.md
 ├── LICENSE
 ├── .gitignore
@@ -140,7 +141,7 @@ Default model settings are six encoder layers, six decoder layers, eight attenti
 
 ## Checkpointing
 
-Checkpoints are written under the configured `opus_books_weights` directory and excluded from version control.
+Checkpoints are written under the configured model directory and excluded from version control.
 
 To resume from the latest checkpoint, set:
 
@@ -244,7 +245,23 @@ Run the test suite with:
 pytest
 ```
 
-The tests cover causal-mask correctness and encoder, decoder, and projection tensor shapes.
+The tests cover causal-mask correctness, attention masking, encoder and decoder tensor shapes, vocabulary projection, and gradient propagation through the complete model.
+
+## Packaging
+
+The repository includes `pyproject.toml` for Python project metadata and development dependencies.
+
+Install the project with:
+
+```bash
+pip install -e .
+```
+
+Install development dependencies with:
+
+```bash
+pip install -e .[dev]
+```
 
 ## Attribution
 
