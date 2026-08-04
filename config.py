@@ -15,6 +15,7 @@ def get_config():
         "label_smoothing": 0.1,
         "grad_clip": 1.0,
         "warmup_steps": 4000,
+        "validation_batches": 100,
         "seed": 42,
         "num_workers": 0,
         "datasource": "opus_books",
