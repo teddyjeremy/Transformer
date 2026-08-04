@@ -13,9 +13,11 @@ Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Ka
 ```text
 Transformer/
 ├── config.py
+├── tokenizer.py
 ├── dataset.py
 ├── model.py
 ├── train.py
+├── translate.py
 ├── requirements.txt
 ├── README.md
 ├── LICENSE
@@ -30,13 +32,17 @@ Transformer/
 
 `config.py` contains training, model, tokenizer, checkpoint, and TensorBoard configuration.
 
+`tokenizer.py` handles WordLevel tokenizer creation, vocabulary training, tokenizer persistence, and tokenizer loading.
+
 `dataset.py` prepares bilingual examples, creates encoder and decoder inputs, builds padding masks, and provides the causal attention mask.
 
 `model.py` implements the Transformer encoder-decoder architecture with embeddings, sinusoidal positional encoding, multi-head attention, feed-forward networks, residual connections, normalization, and vocabulary projection.
 
-`train.py` handles OPUS Books loading, tokenizer creation, dataset splitting, training, greedy decoding, validation metrics, TensorBoard logging, and checkpoint management.
+`train.py` handles OPUS Books loading, dataset splitting, training, greedy decoding, validation metrics, TensorBoard logging, and checkpoint management.
 
-`notebooks/Transformer_English_to_French.ipynb` provides an interactive walkthrough of the model and its tensor shapes.
+`translate.py` provides reusable checkpoint loading and English-to-French inference functions without coupling inference to the training loop.
+
+`notebooks/Transformer_English_to_French.ipynb` provides an interactive walkthrough of the model, masks, and tensor shapes.
 
 `tests/test_model.py` contains shape and causal-mask tests for the core architecture.
 
@@ -72,7 +78,28 @@ python train.py
 
 The first run builds WordLevel tokenizers from the OPUS Books training data. Subsequent runs reuse the generated tokenizer files.
 
-The training pipeline creates a 90/10 training-validation split, trains the Transformer with teacher forcing, evaluates generated translations, records training and validation metrics, and saves model checkpoints.
+The training pipeline creates a deterministic 90/10 training-validation split, trains the Transformer with teacher forcing, evaluates generated translations, records training and validation metrics, and saves model checkpoints.
+
+## Translation
+
+After training, inference can be performed from Python:
+
+```python
+from config import get_config
+from translate import load_translation_model, translate_text
+
+config = get_config()
+model, tokenizer_src, tokenizer_tgt, device = load_translation_model(config)
+
+translation = translate_text(
+    "Hello, how are you?",
+    model,
+    tokenizer_src,
+    tokenizer_tgt,
+    config,
+    device
+)
+```
 
 ## TensorBoard
 
