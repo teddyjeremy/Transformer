@@ -249,6 +249,17 @@ def get_device():
     return torch.device("cpu")
 
 
+def get_lr_multiplier(step, warmup_steps):
+    if warmup_steps <= 0:
+        return 1.0
+
+    step = max(step, 1)
+    return min(
+        step ** -0.5,
+        step * warmup_steps ** -1.5
+    ) * warmup_steps ** 0.5
+
+
 def train_model(config):
     torch.manual_seed(config["seed"])
 
@@ -290,6 +301,14 @@ def train_model(config):
         weight_decay=0.01
     )
 
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: get_lr_multiplier(
+            step + 1,
+            config["warmup_steps"]
+        )
+    )
+
     initial_epoch = 0
     global_step = 0
     preload = config["preload"]
@@ -314,6 +333,12 @@ def train_model(config):
         optimizer.load_state_dict(
             state["optimizer_state_dict"]
         )
+
+        if "scheduler_state_dict" in state:
+            scheduler.load_state_dict(
+                state["scheduler_state_dict"]
+            )
+
         initial_epoch = state["epoch"] + 1
         global_step = state["global_step"]
 
@@ -376,6 +401,11 @@ def train_model(config):
                 loss.item(),
                 global_step
             )
+            writer.add_scalar(
+                "train/learning_rate",
+                optimizer.param_groups[0]["lr"],
+                global_step
+            )
 
             loss.backward()
 
@@ -385,6 +415,7 @@ def train_model(config):
             )
 
             optimizer.step()
+            scheduler.step()
             optimizer.zero_grad(set_to_none=True)
             global_step += 1
 
@@ -409,6 +440,7 @@ def train_model(config):
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "global_step": global_step,
                 "config": config
             },
