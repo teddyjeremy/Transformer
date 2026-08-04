@@ -82,14 +82,14 @@ def run_validation(
     device,
     global_step,
     writer,
-    num_examples=2
+    num_examples=100
 ):
     model.eval()
 
     expected = []
     predicted = []
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for count, batch in enumerate(validation_ds, start=1):
             encoder_input = batch["encoder_input"].to(device)
             encoder_mask = batch["encoder_mask"].to(device)
@@ -115,36 +115,39 @@ def run_validation(
             if count == num_examples:
                 break
 
-    if writer and predicted:
-        cer = torchmetrics.CharErrorRate()(
-            predicted,
-            expected
-        )
-        wer = torchmetrics.WordErrorRate()(
-            predicted,
-            expected
-        )
-        bleu = torchmetrics.BLEUScore()(
-            predicted,
-            [[text] for text in expected]
-        )
+    if not predicted:
+        return {}
 
+    cer = torchmetrics.CharErrorRate()(predicted, expected)
+    wer = torchmetrics.WordErrorRate()(predicted, expected)
+    bleu = torchmetrics.BLEUScore()(
+        predicted,
+        [[text] for text in expected]
+    )
+
+    if writer:
         writer.add_scalar(
-            "validation cer",
-            cer,
+            "validation/cer",
+            cer.item(),
             global_step
         )
         writer.add_scalar(
-            "validation wer",
-            wer,
+            "validation/wer",
+            wer.item(),
             global_step
         )
         writer.add_scalar(
-            "validation BLEU",
-            bleu,
+            "validation/bleu",
+            bleu.item(),
             global_step
         )
         writer.flush()
+
+    return {
+        "cer": cer.item(),
+        "wer": wer.item(),
+        "bleu": bleu.item()
+    }
 
 
 def get_ds(config):
@@ -172,7 +175,9 @@ def get_ds(config):
     train_ds_raw, val_ds_raw = random_split(
         ds_raw,
         [train_ds_size, val_ds_size],
-        generator=torch.Generator().manual_seed(42)
+        generator=torch.Generator().manual_seed(
+            config["seed"]
+        )
     )
 
     train_ds = BilingualDataset(
@@ -193,18 +198,23 @@ def get_ds(config):
         config["seq_len"]
     )
 
+    loader_kwargs = {
+        "pin_memory": torch.cuda.is_available(),
+        "num_workers": config["num_workers"]
+    }
+
     train_dataloader = DataLoader(
         train_ds,
         batch_size=config["batch_size"],
         shuffle=True,
-        pin_memory=torch.cuda.is_available()
+        **loader_kwargs
     )
 
     val_dataloader = DataLoader(
         val_ds,
         batch_size=1,
         shuffle=False,
-        pin_memory=torch.cuda.is_available()
+        **loader_kwargs
     )
 
     return (
@@ -221,7 +231,11 @@ def get_model(config, vocab_src_len, vocab_tgt_len):
         vocab_tgt_len,
         config["seq_len"],
         config["seq_len"],
-        d_model=config["d_model"]
+        d_model=config["d_model"],
+        N=config["num_layers"],
+        h=config["num_heads"],
+        dropout=config["dropout"],
+        d_ff=config["d_ff"]
     )
 
 
@@ -236,6 +250,11 @@ def get_device():
 
 
 def train_model(config):
+    torch.manual_seed(config["seed"])
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config["seed"])
+
     device = get_device()
 
     model_folder = Path(
@@ -246,9 +265,12 @@ def train_model(config):
         exist_ok=True
     )
 
-    train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(
-        config
-    )
+    (
+        train_dataloader,
+        val_dataloader,
+        tokenizer_src,
+        tokenizer_tgt
+    ) = get_ds(config)
 
     model = get_model(
         config,
@@ -260,10 +282,12 @@ def train_model(config):
         config["experiment_name"]
     )
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config["lr"],
-        eps=1e-9
+        betas=(0.9, 0.98),
+        eps=1e-9,
+        weight_decay=0.01
     )
 
     initial_epoch = 0
@@ -295,7 +319,7 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(
         ignore_index=tokenizer_tgt.token_to_id("[PAD]"),
-        label_smoothing=0.1
+        label_smoothing=config["label_smoothing"]
     ).to(device)
 
     for epoch in range(
@@ -348,12 +372,18 @@ def train_model(config):
             )
 
             writer.add_scalar(
-                "train loss",
+                "train/loss",
                 loss.item(),
                 global_step
             )
 
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                config["grad_clip"]
+            )
+
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             global_step += 1
@@ -365,7 +395,8 @@ def train_model(config):
             config["seq_len"],
             device,
             global_step,
-            writer
+            writer,
+            config["validation_batches"]
         )
 
         model_filename = get_weights_file_path(
@@ -378,7 +409,8 @@ def train_model(config):
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
-                "global_step": global_step
+                "global_step": global_step,
+                "config": config
             },
             model_filename
         )
