@@ -131,7 +131,10 @@ if __name__ == "__main__":
         device
     )
 
-    output_path = Path(config["model_folder"]) / "evaluation.pt"
+    output_path = (
+        Path(f"{config['datasource']}_{config['model_folder']}")
+        / "evaluation.pt"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(
